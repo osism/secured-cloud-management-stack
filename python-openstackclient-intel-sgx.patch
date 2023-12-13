@@ -1,0 +1,109 @@
+From 88aa1ebe33c8b4dade74255c92ac50ae1b0df411 Mon Sep 17 00:00:00 2001
+From: shaleijie <sha.leijie@99cloud.net>
+Date: Thu, 1 Sep 2022 11:42:17 +0800
+Subject: [PATCH] Add support for quota of sgx_epc
+
+* openstack quota set --sgx-epc <tenant_id>
+
+Co-authored-by: Gondermann <gondermann@b1-systems.de>
+---
+ openstackclient/common/quota.py                 | 3 +++
+ openstackclient/tests/unit/common/test_quota.py | 2 ++
+ openstackclient/tests/unit/compute/v2/fakes.py  | 5 +++++
+ 3 files changed, 10 insertions(+)
+
+diff --git a/openstackclient/common/quota.py b/openstackclient/common/quota.py
+index 409fea6c..a00bf32e 100644
+--- a/openstackclient/common/quota.py
++++ b/openstackclient/common/quota.py
+@@ -41,6 +41,7 @@ COMPUTE_QUOTAS = {
+     'key_pairs': 'key-pairs',
+     'metadata_items': 'properties',
+     'ram': 'ram',
++    'sgx_epc': 'sgx-epc',
+     'server_groups': 'server-groups',
+     'server_group_members': 'server-group-members',
+ }
+@@ -413,6 +414,7 @@ class ListQuota(command.Lister):
+                 'key_pairs',
+                 'metadata_items',
+                 'ram',
++                'sgx_epc',
+                 'server_groups',
+                 'server_group_members',
+             )
+@@ -427,6 +429,7 @@ class ListQuota(command.Lister):
+                 'Key Pairs',
+                 'Metadata Items',
+                 'Ram',
++                'SGX EPC',
+                 'Server Groups',
+                 'Server Group Members',
+             )
+diff --git a/openstackclient/tests/unit/common/test_quota.py b/openstackclient/tests/unit/common/test_quota.py
+index 1884321a..408082c9 100644
+--- a/openstackclient/tests/unit/common/test_quota.py
++++ b/openstackclient/tests/unit/common/test_quota.py
+@@ -81,6 +81,7 @@ class TestQuotaList(TestQuota):
+         'Key Pairs',
+         'Metadata Items',
+         'Ram',
++        'SGX EPC',
+         'Server Groups',
+         'Server Group Members',
+     )
+@@ -138,6 +139,7 @@ class TestQuotaList(TestQuota):
+             self.compute_quotas[0].key_pairs,
+             self.compute_quotas[0].metadata_items,
+             self.compute_quotas[0].ram,
++            self.compute_quotas[0].sgx_epc,
+             self.compute_quotas[0].server_groups,
+             self.compute_quotas[0].server_group_members,
+         )
+diff --git a/openstackclient/tests/unit/compute/v2/fakes.py b/openstackclient/tests/unit/compute/v2/fakes.py
+index 3e9f4ad9..ecc8e087 100644
+--- a/openstackclient/tests/unit/compute/v2/fakes.py
++++ b/openstackclient/tests/unit/compute/v2/fakes.py
+@@ -52,6 +52,7 @@ injected_path_size_num = 255
+ key_pair_num = 100
+ core_num = 20
+ ram_num = 51200
++sgx_epc_num = 1024
+ instance_num = 10
+ property_num = 128
+ secgroup_rule_num = 20
+@@ -69,6 +70,7 @@ QUOTA = {
+     'key-pairs': key_pair_num,
+     'cores': core_num,
+     'ram': ram_num,
++    'sgx-epc': sgx_epc_num,
+     'instances': instance_num,
+     'properties': property_num,
+     'secgroup_rules': secgroup_rule_num,
+@@ -1140,6 +1142,7 @@ def create_one_comp_quota(attrs=None):
+         'key_pairs': 20,
+         'metadata_items': 10,
+         'ram': 51200,
++        'sgx_epc': 1024,
+         'server_groups': 10,
+         'server_group_members': 10,
+     }
+@@ -1168,6 +1171,7 @@ def create_one_default_comp_quota(attrs=None):
+         'key_pairs': 20,
+         'metadata_items': 10,
+         'ram': 51200,
++        'sgx_epc': 1024,
+         'server_groups': 10,
+         'server_group_members': 10,
+     }
+@@ -1204,6 +1208,7 @@ def create_one_comp_detailed_quota(attrs=None):
+         'key_pairs': {'reserved': 0, 'in_use': 0, 'limit': 20},
+         'metadata_items': {'reserved': 0, 'in_use': 0, 'limit': 10},
+         'ram': {'reserved': 0, 'in_use': 0, 'limit': 51200},
++        'sgx_epc': {'reserved': 0, 'in_use': 0, 'limit': 1024},
+         'server_groups': {'reserved': 0, 'in_use': 0, 'limit': 10},
+         'server_group_members': {'reserved': 0, 'in_use': 0, 'limit': 10},
+     }
+-- 
+2.40.1
+

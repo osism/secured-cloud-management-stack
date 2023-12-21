@@ -1,7 +1,7 @@
 From 746e576feddf48a90b859963539d4144329d648c Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 12 Mar 2022 20:39:07 +0800
-Subject: [PATCH 1/5] Add flavor extra spec parameters and image property for
+Subject: [PATCH 1/6] Add flavor extra spec parameters and image property for
  Intel Software Guard Extensions (SGX)
 
 Add a new flavor extra spec parameter: "trait:HW_CPU_X86_SGX", and a new image property: "trait:HW_CPU_X86_SGX". Valuable settings for extra spec parameter are "required" or "forbidden", but "required" is the only valuable setting for image property. There is a conflict when extra spec parameter is set to "forbidden" and image property set to "required", which will cause guest's creation to fail. In other cases, the created guest's CPU has SGX features when one of extra spec parameter or image property is set to "required".
@@ -750,7 +750,7 @@ index b57751093e..9a84da1924 100644
 From 7504a1cc1b21aed08351964f91a254671c9088a1 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 14 May 2022 01:50:28 +0800
-Subject: [PATCH 2/5] Add quota support for SGX
+Subject: [PATCH 2/6] Add quota support for SGX
 
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
@@ -4058,7 +4058,7 @@ index d73b163758..439effedf2 100644
 From bfafcb0220ce36e06258da3de68bb96f5ff3aa7c Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Mon, 16 May 2022 19:06:49 +0800
-Subject: [PATCH 3/5] fix quota
+Subject: [PATCH 3/6] fix quota
 
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
@@ -4198,7 +4198,7 @@ index 85adffd463..fec1de05d6 100644
 From 4403ad051b19078eb29598baaf73a4e78b2725cf Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sun, 5 Jun 2022 23:09:23 +0800
-Subject: [PATCH 4/5] fix check of flavor extra_specs
+Subject: [PATCH 4/6] fix check of flavor extra_specs
 
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
@@ -4232,7 +4232,7 @@ index b947e590c2..1969953ae9 100644
 From 42c73a85d640465ac43ba64f0ecd04346f582d38 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Fri, 15 Jul 2022 22:20:31 +0800
-Subject: [PATCH 5/5] Support for SDL tests
+Subject: [PATCH 5/6] Support for SDL tests
 
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
@@ -4361,6 +4361,207 @@ index 9a84da1924..09a8874204 100644
          with open(SGX_KERNEL_PARAM_FILE) as f:
              contents = f.read()
              LOG.debug("%s contains [%s]", SGX_KERNEL_PARAM_FILE, contents)
+-- 
+2.40.1
+
+
+From 341f12316a59cd9b67d487e5dba5c1a660d71756 Mon Sep 17 00:00:00 2001
+From: Gondermann <gondermann@b1-systems.de>
+Date: Wed, 20 Dec 2023 15:52:43 +0100
+Subject: [PATCH 6/6] Make nova spin up SGX instances (experimental)
+
+Signed-off-by: Gondermann <gondermann@b1-systems.de>
+---
+ nova/tests/unit/virt/libvirt/test_driver.py |  5 --
+ nova/virt/libvirt/config.py                 | 60 ++++++++++-----------
+ nova/virt/libvirt/driver.py                 | 58 +++++++++++++-------
+ 3 files changed, 70 insertions(+), 53 deletions(-)
+
+diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
+index dead294bb4..536c4b53bf 100644
+--- a/nova/tests/unit/virt/libvirt/test_driver.py
++++ b/nova/tests/unit/virt/libvirt/test_driver.py
+@@ -29854,8 +29854,3 @@ class TestLibvirtSGX(test.NoDBTestCase):
+         )
+         result = self.driver._guest_add_sgx(guest_tmp, flavor, None)
+         self.assertIsNone(result)
+-        self.assertTrue(
+-            isinstance(guest_tmp.sgx,
+-                       vconfig.LibvirtConfigGuestQemuCommandLine))
+-        _str = 'memory-backend-epc,id=mem1,size=%dM,prealloc=on' % epc_size
+-        self.assertTrue(_str in guest_tmp.sgx.arguments)
+diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
+index 42e4005295..7b95dbd90c 100644
+--- a/nova/virt/libvirt/config.py
++++ b/nova/virt/libvirt/config.py
+@@ -42,6 +42,8 @@ from nova.virt import hardware
+ NOVA_NS = "http://openstack.org/xmlns/libvirt/nova/1.1"
+ QEMU_NS = "http://libvirt.org/schemas/domain/qemu/1.0"
+ 
++from oslo_log import log as logging
++LOG = logging.getLogger(__name__)
+ 
+ class LibvirtConfigObject(object):
+ 
+@@ -2901,33 +2903,36 @@ class LibvirtConfigGuestFeatureVMCoreInfo(LibvirtConfigGuestFeature):
+         super().__init__('vmcoreinfo', **kwargs)
+ 
+ 
+-class LibvirtConfigGuestQemuCommandLine(LibvirtConfigObject):
+-
++class LibvirtConfigGuestSGXDevice(LibvirtConfigGuestDevice):
+     def __init__(self, **kwargs):
+-        super(LibvirtConfigGuestQemuCommandLine, self).__init__(
+-            root_name='commandline', ns_prefix="qemu", ns_uri=QEMU_NS)
+-        # List of strings, each item is the argument of the command line.
+-        # For example, launch a SGX guest with the cmd:
+-        # `qemu-system-x86_64 \
+-        # -cpu host,+sgx-provisionkey \
+-        # -object memory-backend-epc,id=mem1,size=64M,prealloc=on \
+-        # -M sgx-epc.0.memdev=mem1,sgx-epc.0.node=0`,
+-        # arguments will be:
+-        # ['-cpu',
+-        #  'host,+sgx-provisionkey',
+-        #  '-object',
+-        #  'memory-backend-epc,id=mem1,size=64M,prealloc=on',
+-        #  '-M',
+-        #  'sgx-epc.0.memdev=mem1,sgx-epc.0.node=0']
+-        self.arguments = []
++        super(LibvirtConfigGuestSGXDevice, self).__init__(root_name="memory",
++                                                         **kwargs)
++        self.model = 'sgx-epc'
++        self.sgx_epc_mb = 0
++        self.sgx_node = 0
++        self.node_count = 1
+ 
+     def format_dom(self):
+-        cmdline = super(LibvirtConfigGuestQemuCommandLine, self).format_dom()
+-        for argument in self.arguments:
+-            arg = self._new_node("arg")
+-            arg.set("value", argument)
+-            cmdline.append(arg)
+-        return cmdline
++        dev = super(LibvirtConfigGuestSGXDevice, self).format_dom()
++
++        dev.set('model', self.model)
++
++        source = etree.Element("source")
++        nodemask = etree.Element("nodemask")
++        nodemask.text = "0-" + str(self.node_count - 1)
++        source.append(nodemask)
++        dev.append(source)
++
++        target = etree.Element("target")
++        size = etree.Element("size", unit="KiB")
++        size.text = str(self.sgx_epc_mb * units.Ki)
++        target.append(size)
++        node = etree.Element("node")
++        node.text = str(self.sgx_node)
++        target.append(node)
++        dev.append(target)
++
++        return dev
+ 
+ 
+ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -2975,7 +2980,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+         self.idmaps = []
+         self.perf_events = []
+         self.launch_security = None
+-        self.sgx = None
+ 
+     def _format_basic_props(self, root):
+         root.append(self._text_node("uuid", self.uuid))
+@@ -3101,10 +3105,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+         if self.launch_security is not None:
+             root.append(self.launch_security.format_dom())
+ 
+-    def _format_sgx(self, root):
+-        if self.sgx is not None:
+-            root.append(self.sgx.format_dom())
+-
+     def format_dom(self):
+         root = super(LibvirtConfigGuest, self).format_dom()
+ 
+@@ -3135,7 +3135,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+ 
+         self._format_sev(root)
+ 
+-        self._format_sgx(root)
++        LOG.debug('xml=%s', etree.tostring(root, encoding='unicode', pretty_print=True))
+ 
+         return root
+ 
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 439effedf2..22c3e41712 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -7244,25 +7244,47 @@ class LibvirtDriver(driver.ComputeDriver):
+         guest.launch_security = launch_security
+ 
+     def _guest_add_sgx(self, guest, flavor, image_meta):
+-        if guest.virt_type in ('qemu', 'kvm'):
+-            if hardware.get_sgx_trait_constraint(flavor, image_meta):
+-                for flag in CONF.libvirt.sgx_features:
+-                    guest.cpu.add_feature(
+-                        vconfig.LibvirtConfigGuestCPUFeature(flag))
+-            else:
+-                return
+-            sgx_epc_mb = self._get_guest_sgx_epc_mb(flavor)
+-            if sgx_epc_mb is None:
++        if not guest.virt_type in ('qemu', 'kvm'):
++            return
++
++        if hardware.get_sgx_trait_constraint(flavor, image_meta):
++            for flag in CONF.libvirt.sgx_features:
++                guest.cpu.add_feature(
++                    vconfig.LibvirtConfigGuestCPUFeature(flag))
++        else:
++            return
++
++        sgx_epc_mb = self._get_guest_sgx_epc_mb(flavor)
++        if sgx_epc_mb is None:
++            return
++
++        if not guest.max_memory_size:
++            if not guest.memory:
+                 return
+-            sgx_qemu_commandline = vconfig.LibvirtConfigGuestQemuCommandLine()
+-            sgx_qemu_commandline.arguments = [
+-                '-object',
+-                'memory-backend-epc,id=mem1,size=%dM,'
+-                'prealloc=on' % sgx_epc_mb,
+-                '-M',
+-                'sgx-epc.0.memdev=mem1'
+-            ]
+-            guest.sgx = sgx_qemu_commandline
++            guest.max_memory_size = guest.memory
++            guest.max_memory_slots = 0
++
++        guest.max_memory_size += (sgx_epc_mb * units.Ki)
++        guest.max_memory_slots += 1
++
++        if not guest.cpu.numa:
++            numa = vconfig.LibvirtConfigGuestCPUNUMA()
++            cellcount = 1
++            memory_per_cell = guest.memory // cellcount
++            for i in range(cellcount):
++                cell = vconfig.LibvirtConfigGuestCPUNUMACell()
++                cell.id = i
++                cell.cpus = {i}
++                cell.memory = memory_per_cell
++                cell.unit="KiB"
++                numa.cells.append(cell)
++            guest.cpu.numa = numa
++
++        sgx_device = vconfig.LibvirtConfigGuestSGXDevice()
++        sgx_device.sgx_epc_mb = sgx_epc_mb
++        sgx_device.sgx_node = 0
++        sgx_device.node_count = len(guest.cpu.numa.cells)
++        guest.add_device(sgx_device)
+ 
+     def _find_sev_feature(self, arch, mach_type):
+         """Search domain capabilities for the given arch and machine type
 -- 
 2.40.1
 

@@ -1,4 +1,4 @@
-From 746e576feddf48a90b859963539d4144329d648c Mon Sep 17 00:00:00 2001
+From 1727e2c1807366e28eeda8668c88d19a35da69b5 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 12 Mar 2022 20:39:07 +0800
 Subject: [PATCH 1/6] Add flavor extra spec parameters and image property for
@@ -10,7 +10,7 @@ What's more, add a new flavor extra spec parameter: "resources:CUSTOM_SGX_EPC_MB
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
  doc/source/admin/intel-sgx.rst              | 107 ++++++++++++++++++++
- nova/conf/libvirt.py                        |  62 ++++++++++++
+ nova/conf/libvirt.py                        |  64 ++++++++++++
  nova/tests/unit/virt/libvirt/test_driver.py |  58 +++++++++++
  nova/tests/unit/virt/libvirt/test_host.py   | 103 +++++++++++++++++++
  nova/tests/unit/virt/test_hardware.py       |  52 ++++++++++
@@ -18,7 +18,7 @@ Co-authored-by: Gondermann <gondermann@b1-systems.de>
  nova/virt/libvirt/config.py                 |  37 +++++++
  nova/virt/libvirt/driver.py                 |  51 ++++++++++
  nova/virt/libvirt/host.py                   |  39 +++++++
- 9 files changed, 542 insertions(+)
+ 9 files changed, 544 insertions(+)
  create mode 100755 doc/source/admin/intel-sgx.rst
 
 diff --git a/doc/source/admin/intel-sgx.rst b/doc/source/admin/intel-sgx.rst
@@ -135,13 +135,14 @@ index 0000000000..ce5a82f0ed
 +SGX instances is not SGX-enable, users need to manually install
 +the SGX driver. SGX-enabled image already contains the SGX driver
 diff --git a/nova/conf/libvirt.py b/nova/conf/libvirt.py
-index 8b1c148dbd..75923f690d 100644
+index abcefee777..c45c4e494c 100644
 --- a/nova/conf/libvirt.py
 +++ b/nova/conf/libvirt.py
-@@ -917,6 +917,68 @@ Related options:
- * ``compute_driver`` (libvirt)
- * ``virt_type`` (qemu)
+@@ -940,6 +940,70 @@ Related options:
+ * ``live_migration_inbound_addr``
+ 
  """),
++
 +    cfg.IntOpt('sgx_epc_mb',
 +               default=0,
 +               min=0,
@@ -157,6 +158,7 @@ index 8b1c148dbd..75923f690d 100644
 +  set to kvm or qemu. SGX cannot be enabled on other hypervisors.
 +
 +"""),
++
 +    cfg.ListOpt('sgx_features',
 +                default=['sgx',
 +                         'sgxlc',
@@ -208,10 +210,10 @@ index 8b1c148dbd..75923f690d 100644
  
  libvirt_imagebackend_opts = [
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index baabe14487..42ccb3bc29 100644
+index 868e024370..689c7a48eb 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -29794,3 +29794,61 @@ class AsyncDeviceEventsHandlerTestCase(test.NoDBTestCase):
+@@ -29965,3 +29965,61 @@ class AsyncDeviceEventsHandlerTestCase(test.NoDBTestCase):
          # the third client timed out
          self.assertIsNone(received_event3)
          self.assert_handler_clean()
@@ -274,10 +276,10 @@ index baabe14487..42ccb3bc29 100644
 +        _str = 'memory-backend-epc,id=mem1,size=%dM,prealloc=on' % epc_size
 +        self.assertTrue(_str in guest_tmp.sgx.arguments)
 diff --git a/nova/tests/unit/virt/libvirt/test_host.py b/nova/tests/unit/virt/libvirt/test_host.py
-index a94dea48d3..69ae5689c1 100644
+index a3fcddfdee..3b786d7b3b 100644
 --- a/nova/tests/unit/virt/libvirt/test_host.py
 +++ b/nova/tests/unit/virt/libvirt/test_host.py
-@@ -2201,3 +2201,106 @@ class LoadersTestCase(test.NoDBTestCase):
+@@ -2219,3 +2219,106 @@ class LoadersTestCase(test.NoDBTestCase):
              mock_glob.assert_called_once_with(
                  '/usr/share/qemu/firmware/*.json')
              mock_open.assert_called_once_with('10_fake.json', 'rb')
@@ -385,10 +387,10 @@ index a94dea48d3..69ae5689c1 100644
 +            self.flags(sgx_features=features, group='libvirt')
 +            self.assertFalse(self.host.supports_intel_sgx)
 diff --git a/nova/tests/unit/virt/test_hardware.py b/nova/tests/unit/virt/test_hardware.py
-index 381213f972..2b8ed58f68 100644
+index ffecf4e38e..a4fe9f5033 100644
 --- a/nova/tests/unit/virt/test_hardware.py
 +++ b/nova/tests/unit/virt/test_hardware.py
-@@ -6075,3 +6075,55 @@ class HostCellsSortingTestCase(test.NoDBTestCase):
+@@ -6121,3 +6121,55 @@ class HostCellsSortingTestCase(test.NoDBTestCase):
                  {},
                  pci_stats = self.pci_stats)
          self.assertInstanceNUMAcellOrder([3, 2, 0], instance_topology)
@@ -445,10 +447,10 @@ index 381213f972..2b8ed58f68 100644
 +            self._test_get_sgx_trait_constraint(
 +                extra_specs, image_props, assert_func)
 diff --git a/nova/virt/hardware.py b/nova/virt/hardware.py
-index 5ca0dda596..da3679297d 100644
+index 00c1b4af8b..38938f1930 100644
 --- a/nova/virt/hardware.py
 +++ b/nova/virt/hardware.py
-@@ -2760,3 +2760,36 @@ def get_ephemeral_encryption_format(
+@@ -2810,3 +2810,36 @@ def get_ephemeral_encryption_format(
              )
          return eph_format
      return None
@@ -486,7 +488,7 @@ index 5ca0dda596..da3679297d 100644
 +
 +    return flavor_str == "required" or image_require_sgx
 diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
-index 2a1e703d31..42e4005295 100644
+index 164af286dc..6b648b5572 100644
 --- a/nova/virt/libvirt/config.py
 +++ b/nova/virt/libvirt/config.py
 @@ -40,6 +40,7 @@ from nova.virt import hardware
@@ -496,8 +498,8 @@ index 2a1e703d31..42e4005295 100644
 +QEMU_NS = "http://libvirt.org/schemas/domain/qemu/1.0"
  
  
- class LibvirtConfigObject(object):
-@@ -2900,6 +2901,35 @@ class LibvirtConfigGuestFeatureVMCoreInfo(LibvirtConfigGuestFeature):
+ def make_libvirt_device_alias(identifier):
+@@ -2937,6 +2938,35 @@ class LibvirtConfigGuestFeatureVMCoreInfo(LibvirtConfigGuestFeature):
          super().__init__('vmcoreinfo', **kwargs)
  
  
@@ -533,7 +535,7 @@ index 2a1e703d31..42e4005295 100644
  class LibvirtConfigGuest(LibvirtConfigObject):
  
      def __init__(self, **kwargs):
-@@ -2945,6 +2975,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -2982,6 +3012,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
          self.idmaps = []
          self.perf_events = []
          self.launch_security = None
@@ -541,7 +543,7 @@ index 2a1e703d31..42e4005295 100644
  
      def _format_basic_props(self, root):
          root.append(self._text_node("uuid", self.uuid))
-@@ -3070,6 +3101,10 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -3107,6 +3138,10 @@ class LibvirtConfigGuest(LibvirtConfigObject):
          if self.launch_security is not None:
              root.append(self.launch_security.format_dom())
  
@@ -552,7 +554,7 @@ index 2a1e703d31..42e4005295 100644
      def format_dom(self):
          root = super(LibvirtConfigGuest, self).format_dom()
  
-@@ -3100,6 +3135,8 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -3137,6 +3172,8 @@ class LibvirtConfigGuest(LibvirtConfigObject):
  
          self._format_sev(root)
  
@@ -562,7 +564,7 @@ index 2a1e703d31..42e4005295 100644
  
      def _parse_basic_props(self, xmldoc):
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 863ac60af0..d73b163758 100644
+index 7f5f48c047..a6b3736754 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,6 +158,8 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -574,7 +576,7 @@ index 863ac60af0..d73b163758 100644
  
  class InjectionInfo(collections.namedtuple(
          'InjectionInfo', ['network_info', 'files', 'admin_pass'])):
-@@ -7139,6 +7141,9 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7174,6 +7176,9 @@ class LibvirtDriver(driver.ComputeDriver):
              self._guest_configure_sev(guest, caps.host.cpu.arch,
                                        guest.os_mach_type)
  
@@ -584,7 +586,7 @@ index 863ac60af0..d73b163758 100644
          if vpmems:
              self._guest_add_vpmems(guest, vpmems)
  
-@@ -7207,6 +7212,13 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7242,6 +7247,13 @@ class LibvirtDriver(driver.ComputeDriver):
          return hardware.get_mem_encryption_constraint(flavor, image_meta,
                                                        mach_type)
  
@@ -598,7 +600,7 @@ index 863ac60af0..d73b163758 100644
      def _guest_configure_sev(self, guest, arch, mach_type):
          sev = self._find_sev_feature(arch, mach_type)
          if sev is None:
-@@ -7232,6 +7244,27 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7267,6 +7279,27 @@ class LibvirtDriver(driver.ComputeDriver):
          launch_security.reduced_phys_bits = sev.reduced_phys_bits
          guest.launch_security = launch_security
  
@@ -626,7 +628,7 @@ index 863ac60af0..d73b163758 100644
      def _find_sev_feature(self, arch, mach_type):
          """Search domain capabilities for the given arch and machine type
          for the <sev> element under <features>, and return it if found.
-@@ -8882,6 +8915,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -8920,6 +8953,7 @@ class LibvirtDriver(driver.ComputeDriver):
          vcpus = len(self._get_vcpu_available())
          pcpus = len(self._get_pcpu_available())
          memory_enc_slots = self._get_memory_encrypted_slots()
@@ -634,7 +636,7 @@ index 863ac60af0..d73b163758 100644
  
          # NOTE(yikun): If the inv record does not exists, the allocation_ratio
          # will use the CONF.xxx_allocation_ratio value if xxx_allocation_ratio
-@@ -8936,6 +8970,16 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -8974,6 +9008,16 @@ class LibvirtDriver(driver.ComputeDriver):
                  'reserved': 0,
              }
  
@@ -651,7 +653,7 @@ index 863ac60af0..d73b163758 100644
          # If a sharing DISK_GB provider exists in the provider tree, then our
          # storage is shared, and we should not report the DISK_GB inventory in
          # the compute node provider.
-@@ -9059,6 +9103,12 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9095,6 +9139,12 @@ class LibvirtDriver(driver.ComputeDriver):
  
          return self._static_traits
  
@@ -664,7 +666,7 @@ index 863ac60af0..d73b163758 100644
      @staticmethod
      def _is_reshape_needed_vgpu_on_root(provider_tree, nodename):
          """Determine if root RP has VGPU inventories.
-@@ -12434,6 +12484,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -12490,6 +12540,7 @@ class LibvirtDriver(driver.ComputeDriver):
          """
          traits = self._get_cpu_feature_traits()
          traits[ot.HW_CPU_X86_AMD_SEV] = self._host.supports_amd_sev
@@ -673,7 +675,7 @@ index 863ac60af0..d73b163758 100644
  
          return traits
 diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
-index b57751093e..9a84da1924 100644
+index 23c9ec01f7..6012358448 100644
 --- a/nova/virt/libvirt/host.py
 +++ b/nova/virt/libvirt/host.py
 @@ -87,6 +87,7 @@ CONF = nova.conf.CONF
@@ -684,15 +686,15 @@ index b57751093e..9a84da1924 100644
  
  # These are taken from the spec
  # https://github.com/qemu/qemu/blob/v5.2.0/docs/interop/firmware.json
-@@ -162,6 +163,7 @@ class Host(object):
-         # kernel, QEMU, and/or libvirt. These are determined on demand and
-         # memoized by various properties below
+@@ -164,6 +165,7 @@ class Host(object):
          self._supports_amd_sev: ty.Optional[bool] = None
+         self._max_sev_guests: ty.Optional[int] = None
+         self._max_sev_es_guests: ty.Optional[int] = None
 +        self._supports_intel_sgx: ty.Optional[bool] = None
          self._supports_uefi: ty.Optional[bool] = None
          self._supports_secure_boot: ty.Optional[bool] = None
  
-@@ -1800,6 +1802,16 @@ class Host(object):
+@@ -1802,6 +1804,16 @@ class Host(object):
              LOG.debug("%s contains [%s]", SEV_KERNEL_PARAM_FILE, content)
              return strutils.bool_from_string(content)
  
@@ -709,9 +711,9 @@ index b57751093e..9a84da1924 100644
      @property
      def supports_amd_sev(self) -> bool:
          """Determine if the host supports AMD SEV for guests.
-@@ -1841,6 +1853,33 @@ class Host(object):
-         LOG.debug("No AMD SEV support detected for any (arch, machine_type)")
-         return self._supports_amd_sev
+@@ -1861,6 +1873,33 @@ class Host(object):
+             return None
+         return self._max_sev_es_guests
  
 +    @property
 +    def supports_intel_sgx(self) -> bool:
@@ -747,7 +749,7 @@ index b57751093e..9a84da1924 100644
 2.40.1
 
 
-From 7504a1cc1b21aed08351964f91a254671c9088a1 Mon Sep 17 00:00:00 2001
+From 32d9e431acca963aa02cd48012b3dab5cda61b43 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 14 May 2022 01:50:28 +0800
 Subject: [PATCH 2/6] Add quota support for SGX
@@ -1640,7 +1642,7 @@ index 82f6ab585b..f44a9aafb4 100644
      }
  }
 diff --git a/nova/accelerator/cyborg.py b/nova/accelerator/cyborg.py
-index 020adc9dc9..d2671a8e20 100644
+index ede2da7c65..c78b29d3be 100644
 --- a/nova/accelerator/cyborg.py
 +++ b/nova/accelerator/cyborg.py
 @@ -106,7 +106,7 @@ def get_device_amount_of_dp_groups(dp_groups):
@@ -1705,10 +1707,10 @@ index 7dad6f70db..a15016a2fe 100644
      'fixed_ips': common_quota,
      'metadata_items': common_quota,
 diff --git a/nova/compute/api.py b/nova/compute/api.py
-index 7eb409a25e..5a4c2903ed 100644
+index 95aac8e8ba..f50c68c039 100644
 --- a/nova/compute/api.py
 +++ b/nova/compute/api.py
-@@ -3878,7 +3878,8 @@ class API:
+@@ -3881,7 +3881,8 @@ class API:
          if deltas:
              try:
                  res_deltas = {'cores': deltas.get('cores', 0),
@@ -1719,10 +1721,10 @@ index 7eb409a25e..5a4c2903ed 100644
                                              project_id, user_id=user_id,
                                              check_project_id=project_id,
 diff --git a/nova/compute/utils.py b/nova/compute/utils.py
-index 30efc24fc7..7b2d12596d 100644
+index 1faeb71489..5cec522971 100644
 --- a/nova/compute/utils.py
 +++ b/nova/compute/utils.py
-@@ -1054,11 +1054,20 @@ def upsize_quota_delta(new_flavor, old_flavor):
+@@ -1068,11 +1068,20 @@ def upsize_quota_delta(new_flavor, old_flavor):
      def _quota_delta(resource):
          return (new_flavor[resource] - old_flavor[resource])
  
@@ -1743,7 +1745,7 @@ index 30efc24fc7..7b2d12596d 100644
  
      return deltas
  
-@@ -1066,24 +1075,15 @@ def upsize_quota_delta(new_flavor, old_flavor):
+@@ -1080,24 +1089,15 @@ def upsize_quota_delta(new_flavor, old_flavor):
  def get_headroom(quotas, usages, deltas):
      headroom = {res: quotas[res] - usages[res]
                  for res in quotas.keys()}
@@ -1777,7 +1779,7 @@ index 30efc24fc7..7b2d12596d 100644
      return headroom
  
  
-@@ -1107,7 +1107,11 @@ def check_num_instances_quota(
+@@ -1121,7 +1121,11 @@ def check_num_instances_quota(
      # Determine requested cores and ram
      req_cores = max_count * flavor.vcpus
      req_ram = max_count * flavor.memory_mb
@@ -1790,7 +1792,7 @@ index 30efc24fc7..7b2d12596d 100644
  
      try:
          # NOTE(johngarbutt) when using unified limits, this is call
-@@ -1126,8 +1130,9 @@ def check_num_instances_quota(
+@@ -1140,8 +1144,9 @@ def check_num_instances_quota(
              # case of a recheck quota, for use in the over quota exception.
              req_cores = orig_num_req * flavor.vcpus
              req_ram = orig_num_req * flavor.memory_mb
@@ -1801,7 +1803,7 @@ index 30efc24fc7..7b2d12596d 100644
              (overs, reqs, total_alloweds, useds) = get_over_quota_detail(
                  deltas, overs, quotas, requested)
              msg = "Cannot run any more instances of this type."
-@@ -1147,6 +1152,8 @@ def check_num_instances_quota(
+@@ -1161,6 +1166,8 @@ def check_num_instances_quota(
              allowed = min(allowed, headroom['cores'] // flavor.vcpus)
          if flavor.memory_mb:
              allowed = min(allowed, headroom['ram'] // flavor.memory_mb)
@@ -1810,7 +1812,7 @@ index 30efc24fc7..7b2d12596d 100644
  
          # Convert to the appropriate exception message
          if allowed <= 0:
-@@ -1162,7 +1169,7 @@ def check_num_instances_quota(
+@@ -1176,7 +1183,7 @@ def check_num_instances_quota(
          num_instances = (str(min_count) if min_count == max_count else
              "%s-%s" % (min_count, max_count))
          requested = dict(instances=num_instances, cores=req_cores,
@@ -1842,7 +1844,7 @@ index 4742249c38..9ed009de26 100644
  * -1 to disable the quota.
  """),
 diff --git a/nova/limit/placement.py b/nova/limit/placement.py
-index ef67ce4860..9d65226350 100644
+index 4c904d9b8f..c05d5c5d3e 100644
 --- a/nova/limit/placement.py
 +++ b/nova/limit/placement.py
 @@ -37,6 +37,7 @@ LEGACY_LIMITS = {
@@ -2062,7 +2064,7 @@ index 02c44093bd..5c8dc4c4fa 100644
  
      def _process_image_meta(self, image):
 diff --git a/nova/tests/fixtures/nova.py b/nova/tests/fixtures/nova.py
-index ae2e7d70ef..d848fa9168 100644
+index 6f1845e8af..9fc02bb5b9 100644
 --- a/nova/tests/fixtures/nova.py
 +++ b/nova/tests/fixtures/nova.py
 @@ -731,6 +731,10 @@ class DefaultFlavorsFixture(fixtures.Fixture):
@@ -3207,7 +3209,7 @@ index 0a1bbd08d8..86904290bf 100644
          }
          self.assertEqual(expected_response, response)
 diff --git a/nova/tests/unit/compute/test_api.py b/nova/tests/unit/compute/test_api.py
-index c2b1f876cd..85adffd463 100644
+index 01afe5ebe1..d48928d106 100644
 --- a/nova/tests/unit/compute/test_api.py
 +++ b/nova/tests/unit/compute/test_api.py
 @@ -2072,10 +2072,10 @@ class _ComputeAPIUnitTestMixIn(object):
@@ -3338,10 +3340,10 @@ index c2b1f876cd..85adffd463 100644
          update_qfd.assert_called_once_with(self.context, instance.uuid, False)
  
 diff --git a/nova/tests/unit/compute/test_compute.py b/nova/tests/unit/compute/test_compute.py
-index f63082d951..6de596667b 100644
+index 24213f18b8..92513f3c7d 100644
 --- a/nova/tests/unit/compute/test_compute.py
 +++ b/nova/tests/unit/compute/test_compute.py
-@@ -9098,7 +9098,8 @@ class ComputeAPITestCase(BaseTestCase):
+@@ -9099,7 +9099,8 @@ class ComputeAPITestCase(BaseTestCase):
          self.assertEqual(2, check_deltas_mock.call_count)
          call1 = mock.call(self.context, {'instances': 1,
                                           'cores': self.default_flavor.vcpus,
@@ -3352,10 +3354,10 @@ index f63082d951..6de596667b 100644
                            user_id=None,
                            check_project_id=self.context.project_id,
 diff --git a/nova/tests/unit/compute/test_utils.py b/nova/tests/unit/compute/test_utils.py
-index dd10ecd7df..14d169568e 100644
+index dae7850014..d3fc0f65a5 100644
 --- a/nova/tests/unit/compute/test_utils.py
 +++ b/nova/tests/unit/compute/test_utils.py
-@@ -44,6 +44,7 @@ from nova import rpc
+@@ -45,6 +45,7 @@ from nova import rpc
  from nova.scheduler.client import report
  from nova import test
  from nova.tests import fixtures
@@ -3363,7 +3365,7 @@ index dd10ecd7df..14d169568e 100644
  from nova.tests.unit import fake_block_device
  from nova.tests.unit import fake_crypto
  from nova.tests.unit import fake_instance
-@@ -1316,10 +1317,14 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
+@@ -1360,10 +1361,14 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
      def test_upsize_quota_delta(self):
          old_flavor = objects.Flavor.get_by_name(self.context, 'm1.tiny')
          new_flavor = objects.Flavor.get_by_name(self.context, 'm1.medium')
@@ -3379,7 +3381,7 @@ index dd10ecd7df..14d169568e 100644
          }
  
          deltas = compute_utils.upsize_quota_delta(new_flavor, old_flavor)
-@@ -1328,15 +1333,18 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
+@@ -1372,15 +1377,18 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
      @mock.patch('nova.objects.Quotas.count_as_dict')
      def test_check_instance_quota_exceeds_with_multiple_resources(self,
                                                                    mock_count):
@@ -3403,7 +3405,7 @@ index dd10ecd7df..14d169568e 100644
          user_count = proj_count.copy()
          mock_count.return_value = {'project': proj_count, 'user': user_count}
          with mock.patch.object(objects.Quotas, 'limit_check_project_and_user',
-@@ -1347,10 +1355,11 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
+@@ -1391,10 +1399,11 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
                                                          instance_num,
                                                          instance_num)
              except exception.TooManyInstances as e:
@@ -3419,7 +3421,7 @@ index dd10ecd7df..14d169568e 100644
              else:
                  self.fail("Exception not raised")
  
-@@ -1364,7 +1373,7 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
+@@ -1408,7 +1417,7 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
          fake_flavor = objects.Flavor(vcpus=1, memory_mb=512)
          compute_utils.check_num_instances_quota(
              self.context, fake_flavor, 1, 1)
@@ -3428,7 +3430,7 @@ index dd10ecd7df..14d169568e 100644
          # Verify that user_id has not been passed along to scope the resource
          # counting.
          mock_check.assert_called_once_with(
-@@ -1384,7 +1393,7 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
+@@ -1428,7 +1437,7 @@ class ComputeUtilsQuotaTestCase(test.TestCase):
              fake_flavor = objects.Flavor(vcpus=1, memory_mb=512)
              compute_utils.check_num_instances_quota(
                  self.context, fake_flavor, 1, 1)
@@ -3525,7 +3527,7 @@ index 4172d3fda3..180782da90 100644
  
      def test_min_root_gb_filter(self):
 diff --git a/nova/tests/unit/objects/test_objects.py b/nova/tests/unit/objects/test_objects.py
-index 5ccb32e613..8c46ead82e 100644
+index 2568e099fc..f6b6a7d21c 100644
 --- a/nova/tests/unit/objects/test_objects.py
 +++ b/nova/tests/unit/objects/test_objects.py
 @@ -1118,7 +1118,7 @@ object_data = {
@@ -3989,10 +3991,10 @@ index 7979d83e91..7ed9673f55 100644
  
      @mock.patch.object(placement_limit, "get_legacy_default_limits")
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 42ccb3bc29..3da7fdee75 100644
+index 689c7a48eb..ab795b7a50 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -29842,7 +29842,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -30013,7 +30013,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
          guest_tmp = self.Temp({'guest': None, 'virt_type': 'kvm'})
          flavor = self.Temp(
              {'extra_specs': {
@@ -4020,7 +4022,7 @@ index 777a188637..5aceeb6f15 100644
  def _get_default_green_pool():
      global DEFAULT_GREEN_POOL
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index d73b163758..439effedf2 100644
+index a6b3736754..40cfc362cd 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,8 +158,6 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -4032,7 +4034,7 @@ index d73b163758..439effedf2 100644
  
  class InjectionInfo(collections.namedtuple(
          'InjectionInfo', ['network_info', 'files', 'admin_pass'])):
-@@ -7216,7 +7214,8 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7251,7 +7249,8 @@ class LibvirtDriver(driver.ComputeDriver):
          """Size of sgx epc memory is determined by
          `resources:CUSTOM_SGX_EPC_MB` specified in flavor extra_spec.
          """
@@ -4042,7 +4044,7 @@ index d73b163758..439effedf2 100644
          return None if epc_mb is None else int(epc_mb)
  
      def _guest_configure_sev(self, guest, arch, mach_type):
-@@ -8971,7 +8970,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9009,7 +9008,7 @@ class LibvirtDriver(driver.ComputeDriver):
              }
  
          if sgx_epc_mb:
@@ -4055,7 +4057,7 @@ index d73b163758..439effedf2 100644
 2.40.1
 
 
-From bfafcb0220ce36e06258da3de68bb96f5ff3aa7c Mon Sep 17 00:00:00 2001
+From 5caf13fad37c8a25fee4a1f856f08130bdec3032 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Mon, 16 May 2022 19:06:49 +0800
 Subject: [PATCH 3/6] fix quota
@@ -4163,7 +4165,7 @@ index 275e519acf..e91e1b524a 100644
                   fails
          """
 diff --git a/nova/tests/unit/compute/test_api.py b/nova/tests/unit/compute/test_api.py
-index 85adffd463..fec1de05d6 100644
+index d48928d106..521e72cdc2 100644
 --- a/nova/tests/unit/compute/test_api.py
 +++ b/nova/tests/unit/compute/test_api.py
 @@ -2255,19 +2255,20 @@ class _ComputeAPIUnitTestMixIn(object):
@@ -4195,7 +4197,7 @@ index 85adffd463..fec1de05d6 100644
 2.40.1
 
 
-From 4403ad051b19078eb29598baaf73a4e78b2725cf Mon Sep 17 00:00:00 2001
+From a0761985ac1ce07669e9d53b2aa1ce52654e6f39 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sun, 5 Jun 2022 23:09:23 +0800
 Subject: [PATCH 4/6] fix check of flavor extra_specs
@@ -4229,7 +4231,7 @@ index b947e590c2..1969953ae9 100644
 2.40.1
 
 
-From 42c73a85d640465ac43ba64f0ecd04346f582d38 Mon Sep 17 00:00:00 2001
+From 262ca750aaaf74ece65f9a2ef512932a31da3ddb Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Fri, 15 Jul 2022 22:20:31 +0800
 Subject: [PATCH 5/6] Support for SDL tests
@@ -4260,10 +4262,10 @@ index 1969953ae9..9a786e3041 100644
              flavor.extra_specs = dict(flavor.extra_specs, **body)
              flavor.save()
 diff --git a/nova/tests/fixtures/libvirt.py b/nova/tests/fixtures/libvirt.py
-index 4f48463118..52eeb89a38 100644
+index 5b4b324801..2b90c0b367 100644
 --- a/nova/tests/fixtures/libvirt.py
 +++ b/nova/tests/fixtures/libvirt.py
-@@ -2290,6 +2290,8 @@ class LibvirtFixture(fixtures.Fixture):
+@@ -2300,6 +2300,8 @@ class LibvirtFixture(fixtures.Fixture):
          def fake_exists(path):
              if path == host.SEV_KERNEL_PARAM_FILE:
                  return False
@@ -4273,10 +4275,10 @@ index 4f48463118..52eeb89a38 100644
  
          self.useFixture(fixtures.MonkeyPatch('os.path.exists', fake_exists))
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 3da7fdee75..dead294bb4 100644
+index ab795b7a50..5039cc4f94 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -7230,6 +7230,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
+@@ -7233,6 +7233,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
          self.assertEqual(cfg.devices[5].rate_bytes, 1024)
          self.assertEqual(cfg.devices[5].rate_period, 2)
  
@@ -4285,7 +4287,7 @@ index 3da7fdee75..dead294bb4 100644
      @test.patch_exists(SEV_KERNEL_PARAM_FILE, result=False, other=True)
      def test_get_guest_config_with_rng_backend(self):
          self.flags(virt_type='kvm',
-@@ -7829,6 +7831,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
+@@ -7832,6 +7834,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
      @mock.patch.object(libvirt_driver.LibvirtDriver,
                         "_get_guest_storage_config")
      @mock.patch.object(libvirt_driver.LibvirtDriver, "_has_numa_support")
@@ -4294,7 +4296,7 @@ index 3da7fdee75..dead294bb4 100644
      @test.patch_exists(SEV_KERNEL_PARAM_FILE, result=False, other=True)
      def test_get_guest_config_aarch64(self, mock_numa, mock_storage):
          TEST_AMOUNT_OF_PCIE_SLOTS = 8
-@@ -7866,6 +7870,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
+@@ -7869,6 +7873,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
      @mock.patch.object(libvirt_driver.LibvirtDriver,
                         "_get_guest_storage_config")
      @mock.patch.object(libvirt_driver.LibvirtDriver, "_has_numa_support")
@@ -4303,7 +4305,7 @@ index 3da7fdee75..dead294bb4 100644
      @test.patch_exists(SEV_KERNEL_PARAM_FILE, result=False, other=True)
      def test_get_guest_config_aarch64_with_graphics(
          self, mock_numa, mock_storage,
-@@ -29809,6 +29815,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -29980,6 +29986,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
  
      def setUp(self):
          super(TestLibvirtSGX, self).setUp()
@@ -4312,10 +4314,10 @@ index 3da7fdee75..dead294bb4 100644
  
      @mock.patch('nova.virt.libvirt.host.Host.supports_intel_sgx',
 diff --git a/nova/tests/unit/virt/libvirt/test_host.py b/nova/tests/unit/virt/libvirt/test_host.py
-index 69ae5689c1..0b34622718 100644
+index 3b786d7b3b..38faea48c9 100644
 --- a/nova/tests/unit/virt/libvirt/test_host.py
 +++ b/nova/tests/unit/virt/libvirt/test_host.py
-@@ -2209,7 +2209,7 @@ class TestLibvirtSGXSupport(test.NoDBTestCase):
+@@ -2227,7 +2227,7 @@ class TestLibvirtSGXSupport(test.NoDBTestCase):
      def setUp(self):
          super(TestLibvirtSGXSupport, self).setUp()
  
@@ -4324,7 +4326,7 @@ index 69ae5689c1..0b34622718 100644
          self.host = host.Host("qemu:///system")
  
      @mock.patch.object(os.path, 'exists', return_value=False)
-@@ -2229,6 +2229,21 @@ class TestLibvirtSGXSupport(test.NoDBTestCase):
+@@ -2247,6 +2247,21 @@ class TestLibvirtSGXSupport(test.NoDBTestCase):
          self.assertFalse(self.host._kernel_supports_intel_sgx())
          fake_exists.assert_called_once_with(host.SGX_KERNEL_PARAM_FILE)
  
@@ -4347,10 +4349,10 @@ index 69ae5689c1..0b34622718 100644
                  new=mock.Mock(return_value=True))
      def test_supports_intel_sgx(self):
 diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
-index 9a84da1924..09a8874204 100644
+index 6012358448..c92053b44d 100644
 --- a/nova/virt/libvirt/host.py
 +++ b/nova/virt/libvirt/host.py
-@@ -1807,6 +1807,10 @@ class Host(object):
+@@ -1809,6 +1809,10 @@ class Host(object):
              LOG.debug("%s does not exist", SGX_KERNEL_PARAM_FILE)
              return False
  
@@ -4365,7 +4367,7 @@ index 9a84da1924..09a8874204 100644
 2.40.1
 
 
-From 341f12316a59cd9b67d487e5dba5c1a660d71756 Mon Sep 17 00:00:00 2001
+From f09224ead489052f2a4f0489e6f2d452cdef5a40 Mon Sep 17 00:00:00 2001
 From: Gondermann <gondermann@b1-systems.de>
 Date: Wed, 20 Dec 2023 15:52:43 +0100
 Subject: [PATCH 6/6] Make nova spin up SGX instances (experimental)
@@ -4378,10 +4380,10 @@ Signed-off-by: Gondermann <gondermann@b1-systems.de>
  3 files changed, 70 insertions(+), 53 deletions(-)
 
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index dead294bb4..536c4b53bf 100644
+index 5039cc4f94..a032120879 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -29854,8 +29854,3 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -30025,8 +30025,3 @@ class TestLibvirtSGX(test.NoDBTestCase):
          )
          result = self.driver._guest_add_sgx(guest_tmp, flavor, None)
          self.assertIsNone(result)
@@ -4391,7 +4393,7 @@ index dead294bb4..536c4b53bf 100644
 -        _str = 'memory-backend-epc,id=mem1,size=%dM,prealloc=on' % epc_size
 -        self.assertTrue(_str in guest_tmp.sgx.arguments)
 diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
-index 42e4005295..7b95dbd90c 100644
+index 6b648b5572..455a329a1e 100644
 --- a/nova/virt/libvirt/config.py
 +++ b/nova/virt/libvirt/config.py
 @@ -42,6 +42,8 @@ from nova.virt import hardware
@@ -4401,9 +4403,9 @@ index 42e4005295..7b95dbd90c 100644
 +from oslo_log import log as logging
 +LOG = logging.getLogger(__name__)
  
- class LibvirtConfigObject(object):
- 
-@@ -2901,33 +2903,36 @@ class LibvirtConfigGuestFeatureVMCoreInfo(LibvirtConfigGuestFeature):
+ def make_libvirt_device_alias(identifier):
+     return 'ua-%s' % identifier
+@@ -2938,33 +2940,36 @@ class LibvirtConfigGuestFeatureVMCoreInfo(LibvirtConfigGuestFeature):
          super().__init__('vmcoreinfo', **kwargs)
  
  
@@ -4464,7 +4466,7 @@ index 42e4005295..7b95dbd90c 100644
  
  
  class LibvirtConfigGuest(LibvirtConfigObject):
-@@ -2975,7 +2980,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -3012,7 +3017,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
          self.idmaps = []
          self.perf_events = []
          self.launch_security = None
@@ -4472,7 +4474,7 @@ index 42e4005295..7b95dbd90c 100644
  
      def _format_basic_props(self, root):
          root.append(self._text_node("uuid", self.uuid))
-@@ -3101,10 +3105,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -3138,10 +3142,6 @@ class LibvirtConfigGuest(LibvirtConfigObject):
          if self.launch_security is not None:
              root.append(self.launch_security.format_dom())
  
@@ -4483,7 +4485,7 @@ index 42e4005295..7b95dbd90c 100644
      def format_dom(self):
          root = super(LibvirtConfigGuest, self).format_dom()
  
-@@ -3135,7 +3135,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
+@@ -3172,7 +3172,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
  
          self._format_sev(root)
  
@@ -4493,10 +4495,10 @@ index 42e4005295..7b95dbd90c 100644
          return root
  
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 439effedf2..22c3e41712 100644
+index 40cfc362cd..8e055eacbf 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
-@@ -7244,25 +7244,47 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7279,25 +7279,47 @@ class LibvirtDriver(driver.ComputeDriver):
          guest.launch_security = launch_security
  
      def _guest_add_sgx(self, guest, flavor, image_meta):

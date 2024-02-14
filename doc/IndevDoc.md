@@ -34,6 +34,7 @@ Test executable:
 
 * ``nova.exception.NoValidHost: No valid host was found.`` -> 
     * Race condition was triggered. Try again by removing the instance from Horizon and repeating the entire time critical part. Retry at least 3 times...
+    * If the error persists, check if the ``n-cpu`` service is down and restart it.
     * If the error persists, check if the ``CUSTOM_SGX_EPC_MB`` is created, and available in the provider inventory with ``openstack resource provider inventory list $UUID``. Also check if the reported values are appropriate.
     * If the error still persists, check the logs of ``n-cpu`` ``n-sch`` and ``n-super-cond`` with ``journalctl -u devstack@n-cpu.service --since=today | tail -n 1000 | less``
 

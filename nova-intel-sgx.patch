@@ -4323,31 +4323,67 @@ index 6012358448..c92053b44d 100644
 2.40.1
 
 
-From 0e9cb7882e09b0fa2b0fcd24eac19f96ffd05ef2 Mon Sep 17 00:00:00 2001
+From ab61692415c376a1a7b2557fd2375bde616fbe99 Mon Sep 17 00:00:00 2001
 From: Gondermann <gondermann@b1-systems.de>
 Date: Wed, 20 Dec 2023 15:52:43 +0100
 Subject: [PATCH 6/6] Make Nova spin up SGX instances using libvirt devices
 
 Signed-off-by: Gondermann <gondermann@b1-systems.de>
 ---
- nova/tests/unit/virt/libvirt/test_driver.py |  5 --
+ nova/tests/unit/virt/libvirt/test_driver.py | 33 +++++++++--
  nova/virt/libvirt/config.py                 | 64 +++++++++++----------
  nova/virt/libvirt/driver.py                 | 56 ++++++++++++------
- 3 files changed, 72 insertions(+), 53 deletions(-)
+ 3 files changed, 99 insertions(+), 54 deletions(-)
 
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 5039cc4f94..a032120879 100644
+index 5039cc4f94..6d1375d1a8 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -30025,8 +30025,3 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -30016,17 +30016,38 @@ class TestLibvirtSGX(test.NoDBTestCase):
+                 new=mock.Mock(return_value=True))
+     def test_guest_add_sgx_kvm_require_sgx(self):
+         epc_size = 10
++
++        self.useFixture(nova_fixtures.CGroupsFixture())
++        instance = _create_test_instance()
++        instance_ref = objects.Instance(**instance)
++        image_meta = objects.ImageMeta.from_dict({"disk_format": "raw"})
++        disk_info = {'mapping': {}}
++
++        cfg = self.driver._get_guest_config(instance_ref,
++                                    _fake_network_info(self),
++                                    image_meta, disk_info)
++        cfg.virt_type = 'kvm'
++        cfg.memory = 1024
++
+         self.flags(sgx_features=[], group='libvirt')
+-        guest_tmp = self.Temp({'guest': None, 'virt_type': 'kvm'})
+         flavor = self.Temp(
+             {'extra_specs': {
+                 'resources:' + utils.SGX_RESOURCE_CLASS: epc_size}
+             }
          )
-         result = self.driver._guest_add_sgx(guest_tmp, flavor, None)
+-        result = self.driver._guest_add_sgx(guest_tmp, flavor, None)
++        result = self.driver._guest_add_sgx(cfg, flavor, None)
          self.assertIsNone(result)
--        self.assertTrue(
++
+         self.assertTrue(
 -            isinstance(guest_tmp.sgx,
 -                       vconfig.LibvirtConfigGuestQemuCommandLine))
 -        _str = 'memory-backend-epc,id=mem1,size=%dM,prealloc=on' % epc_size
 -        self.assertTrue(_str in guest_tmp.sgx.arguments)
++            isinstance(cfg.cpu.numa,
++                       vconfig.LibvirtConfigGuestCPUNUMA))
++        self.assertIsNotNone(cfg.max_memory_size)
++        self.assertTrue(cfg.max_memory_size >= cfg.memory + epc_size)
++        self.assertTrue(cfg.max_memory_slots >= 1)
++
++        found_device = False
++        for device in cfg.devices:
++            if isinstance(device, vconfig.LibvirtConfigGuestSGXDevice):
++                found_device = True
++                self.assertTrue(device.sgx_epc_mb == epc_size)
++        self.assertTrue(found_device)
 diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
 index 6b648b5572..f515040203 100644
 --- a/nova/virt/libvirt/config.py

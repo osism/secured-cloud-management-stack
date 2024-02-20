@@ -1,4 +1,4 @@
-From f7e758f50c87aba45dde6ce31fdd8c3996c62d38 Mon Sep 17 00:00:00 2001
+From d00b5d0b06be22ab00aa0b5bc9aacb229f9ec613 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 12 Mar 2022 20:39:07 +0800
 Subject: [PATCH 1/6] Add flavor parameters and image property for Intel
@@ -18,24 +18,24 @@ This parameter takes effect if guest's CPU has SGX features.
 
 Co-authored-by: Gondermann <gondermann@b1-systems.de>
 ---
- doc/source/admin/intel-sgx.rst              |  80 +++++++++++++++
+ doc/source/admin/intel-sgx.rst              |  81 +++++++++++++++
  nova/conf/libvirt.py                        |  36 +++++++
  nova/tests/unit/virt/libvirt/test_driver.py |  58 +++++++++++
  nova/tests/unit/virt/libvirt/test_host.py   | 103 ++++++++++++++++++++
  nova/tests/unit/virt/test_hardware.py       |  53 ++++++++++
  nova/virt/hardware.py                       |  33 +++++++
  nova/virt/libvirt/config.py                 |  37 +++++++
- nova/virt/libvirt/driver.py                 |  51 ++++++++++
+ nova/virt/libvirt/driver.py                 |  52 ++++++++++
  nova/virt/libvirt/host.py                   |  39 ++++++++
- 9 files changed, 490 insertions(+)
+ 9 files changed, 492 insertions(+)
  create mode 100644 doc/source/admin/intel-sgx.rst
 
 diff --git a/doc/source/admin/intel-sgx.rst b/doc/source/admin/intel-sgx.rst
 new file mode 100644
-index 0000000000..4ceffe2a7a
+index 0000000000..f73e93b343
 --- /dev/null
 +++ b/doc/source/admin/intel-sgx.rst
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,81 @@
 +INTEL SGX (Software Guard Extensions)
 +~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 +
@@ -87,7 +87,8 @@ index 0000000000..4ceffe2a7a
 +
 +- Configure the :oslo.config:option:`libvirt.sgx_epc_mb` option
 +  in :file:`nova.conf` to represent the EPC memory that
-+  an SGX-capable compute host can provide to guests. For example:
++  an SGX-capable compute host can provide to guests. A value of `0`
++  disables the feature for every guest on the host. For example:
 +
 +  .. code-block:: ini
 +
@@ -519,7 +520,7 @@ index 164af286dc..6b648b5572 100644
  
      def _parse_basic_props(self, xmldoc):
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 7f5f48c047..a6b3736754 100644
+index 7f5f48c047..1c1fd90eeb 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,6 +158,8 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -591,7 +592,7 @@ index 7f5f48c047..a6b3736754 100644
  
          # NOTE(yikun): If the inv record does not exists, the allocation_ratio
          # will use the CONF.xxx_allocation_ratio value if xxx_allocation_ratio
-@@ -8974,6 +9008,16 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -8974,6 +9008,17 @@ class LibvirtDriver(driver.ComputeDriver):
                  'reserved': 0,
              }
  
@@ -604,11 +605,12 @@ index 7f5f48c047..a6b3736754 100644
 +                'allocation_ratio': 1,
 +                'reserved': 0,
 +            }
++        # If sgx_epc_mb is 0, no SGX resource class will be added
 +
          # If a sharing DISK_GB provider exists in the provider tree, then our
          # storage is shared, and we should not report the DISK_GB inventory in
          # the compute node provider.
-@@ -9095,6 +9139,12 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9095,6 +9140,12 @@ class LibvirtDriver(driver.ComputeDriver):
  
          return self._static_traits
  
@@ -621,7 +623,7 @@ index 7f5f48c047..a6b3736754 100644
      @staticmethod
      def _is_reshape_needed_vgpu_on_root(provider_tree, nodename):
          """Determine if root RP has VGPU inventories.
-@@ -12490,6 +12540,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -12490,6 +12541,7 @@ class LibvirtDriver(driver.ComputeDriver):
          """
          traits = self._get_cpu_feature_traits()
          traits[ot.HW_CPU_X86_AMD_SEV] = self._host.supports_amd_sev
@@ -704,7 +706,7 @@ index 23c9ec01f7..6012358448 100644
 2.40.1
 
 
-From c76948efdaa17950c2a2fcb144f333a99fd2d2f4 Mon Sep 17 00:00:00 2001
+From 443275740dbdc775b89e217efefc6ed97ebef31e Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 14 May 2022 01:50:28 +0800
 Subject: [PATCH 2/6] Add quota support for SGX
@@ -3987,7 +3989,7 @@ index 777a188637..5aceeb6f15 100644
  def _get_default_green_pool():
      global DEFAULT_GREEN_POOL
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index a6b3736754..40cfc362cd 100644
+index 1c1fd90eeb..0365823415 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,8 +158,6 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -4022,7 +4024,7 @@ index a6b3736754..40cfc362cd 100644
 2.40.1
 
 
-From d328192e13e98dbf72d1f4adbcca5c7f5bc66377 Mon Sep 17 00:00:00 2001
+From e8ad547ba9f0ebd65ec00e83082d0b4ccfbae665 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Mon, 16 May 2022 19:06:49 +0800
 Subject: [PATCH 3/6] Fix SGX quota
@@ -4162,7 +4164,7 @@ index d48928d106..521e72cdc2 100644
 2.40.1
 
 
-From 62519e3b11af4500343b46bed869b1cc3ab51404 Mon Sep 17 00:00:00 2001
+From 692b1e255b746b583a1e7cd9960276f15ab8d157 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sun, 5 Jun 2022 23:09:23 +0800
 Subject: [PATCH 4/6] Fix check of SGX_EPC flavor extra_specs
@@ -4199,7 +4201,7 @@ index a153216c84..f8ac572c88 100644
 2.40.1
 
 
-From 9bf2eb016a737875c2cf82fd800681f3f2f6cd9b Mon Sep 17 00:00:00 2001
+From 10ef4bbb8e18ccb6ad5efc5e903cfb4cae1d61e3 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Fri, 15 Jul 2022 22:20:31 +0800
 Subject: [PATCH 5/6] Support for SDL tests
@@ -4335,7 +4337,7 @@ index 6012358448..c92053b44d 100644
 2.40.1
 
 
-From ca4abfeb65fdc81f9095c07a1eae3392f8fa303a Mon Sep 17 00:00:00 2001
+From cea13757b27d759a6bcbdf658b4697da8e00d86b Mon Sep 17 00:00:00 2001
 From: Gondermann <gondermann@b1-systems.de>
 Date: Wed, 20 Dec 2023 15:52:43 +0100
 Subject: [PATCH 6/6] Make Nova spin up SGX instances using libvirt devices
@@ -4344,8 +4346,8 @@ Signed-off-by: Gondermann <gondermann@b1-systems.de>
 ---
  nova/tests/unit/virt/libvirt/test_driver.py | 33 ++++++++---
  nova/virt/libvirt/config.py                 | 66 +++++++++++----------
- nova/virt/libvirt/driver.py                 | 56 +++++++++++------
- 3 files changed, 100 insertions(+), 55 deletions(-)
+ nova/virt/libvirt/driver.py                 | 57 ++++++++++++------
+ 3 files changed, 101 insertions(+), 55 deletions(-)
 
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
 index 5039cc4f94..c99ae334ba 100644
@@ -4511,7 +4513,7 @@ index 6b648b5572..de12e65da4 100644
          return root
  
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 40cfc362cd..1c8b9dd22e 100644
+index 0365823415..1ec0113092 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -7279,25 +7279,45 @@ class LibvirtDriver(driver.ComputeDriver):
@@ -4578,6 +4580,14 @@ index 40cfc362cd..1c8b9dd22e 100644
  
      def _find_sev_feature(self, arch, mach_type):
          """Search domain capabilities for the given arch and machine type
+@@ -9141,6 +9161,7 @@ class LibvirtDriver(driver.ComputeDriver):
+ 
+     def _get_host_sgx_epc_mb(self):
+         if not self._host.supports_intel_sgx:
++            # Will return 0, if sgx_epc is not configured at all
+             return 0
+         else:
+             return CONF.libvirt.sgx_epc_mb
 -- 
 2.40.1
 

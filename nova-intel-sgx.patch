@@ -1,4 +1,4 @@
-From d00b5d0b06be22ab00aa0b5bc9aacb229f9ec613 Mon Sep 17 00:00:00 2001
+From 4fcbbbaae7e3ebe6c5dd0151567aeb180ce24a9a Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 12 Mar 2022 20:39:07 +0800
 Subject: [PATCH 1/6] Add flavor parameters and image property for Intel
@@ -165,10 +165,10 @@ index abcefee777..f83aba2d72 100644
  
  libvirt_imagebackend_opts = [
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 868e024370..689c7a48eb 100644
+index 5afd87e08d..98f87ed453 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -29965,3 +29965,61 @@ class AsyncDeviceEventsHandlerTestCase(test.NoDBTestCase):
+@@ -29970,3 +29970,61 @@ class AsyncDeviceEventsHandlerTestCase(test.NoDBTestCase):
          # the third client timed out
          self.assertIsNone(received_event3)
          self.assert_handler_clean()
@@ -520,7 +520,7 @@ index 164af286dc..6b648b5572 100644
  
      def _parse_basic_props(self, xmldoc):
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 7f5f48c047..1c1fd90eeb 100644
+index f56bc7d057..34b38c8a30 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,6 +158,8 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -532,7 +532,7 @@ index 7f5f48c047..1c1fd90eeb 100644
  
  class InjectionInfo(collections.namedtuple(
          'InjectionInfo', ['network_info', 'files', 'admin_pass'])):
-@@ -7174,6 +7176,9 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7172,6 +7174,9 @@ class LibvirtDriver(driver.ComputeDriver):
              self._guest_configure_sev(guest, caps.host.cpu.arch,
                                        guest.os_mach_type)
  
@@ -542,7 +542,7 @@ index 7f5f48c047..1c1fd90eeb 100644
          if vpmems:
              self._guest_add_vpmems(guest, vpmems)
  
-@@ -7242,6 +7247,13 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7240,6 +7245,13 @@ class LibvirtDriver(driver.ComputeDriver):
          return hardware.get_mem_encryption_constraint(flavor, image_meta,
                                                        mach_type)
  
@@ -556,7 +556,7 @@ index 7f5f48c047..1c1fd90eeb 100644
      def _guest_configure_sev(self, guest, arch, mach_type):
          sev = self._find_sev_feature(arch, mach_type)
          if sev is None:
-@@ -7267,6 +7279,27 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7265,6 +7277,27 @@ class LibvirtDriver(driver.ComputeDriver):
          launch_security.reduced_phys_bits = sev.reduced_phys_bits
          guest.launch_security = launch_security
  
@@ -584,7 +584,7 @@ index 7f5f48c047..1c1fd90eeb 100644
      def _find_sev_feature(self, arch, mach_type):
          """Search domain capabilities for the given arch and machine type
          for the <sev> element under <features>, and return it if found.
-@@ -8920,6 +8953,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -8918,6 +8951,7 @@ class LibvirtDriver(driver.ComputeDriver):
          vcpus = len(self._get_vcpu_available())
          pcpus = len(self._get_pcpu_available())
          memory_enc_slots = self._get_memory_encrypted_slots()
@@ -592,7 +592,7 @@ index 7f5f48c047..1c1fd90eeb 100644
  
          # NOTE(yikun): If the inv record does not exists, the allocation_ratio
          # will use the CONF.xxx_allocation_ratio value if xxx_allocation_ratio
-@@ -8974,6 +9008,17 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -8972,6 +9006,17 @@ class LibvirtDriver(driver.ComputeDriver):
                  'reserved': 0,
              }
  
@@ -610,7 +610,7 @@ index 7f5f48c047..1c1fd90eeb 100644
          # If a sharing DISK_GB provider exists in the provider tree, then our
          # storage is shared, and we should not report the DISK_GB inventory in
          # the compute node provider.
-@@ -9095,6 +9140,12 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9093,6 +9138,12 @@ class LibvirtDriver(driver.ComputeDriver):
  
          return self._static_traits
  
@@ -623,7 +623,7 @@ index 7f5f48c047..1c1fd90eeb 100644
      @staticmethod
      def _is_reshape_needed_vgpu_on_root(provider_tree, nodename):
          """Determine if root RP has VGPU inventories.
-@@ -12490,6 +12541,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -12488,6 +12539,7 @@ class LibvirtDriver(driver.ComputeDriver):
          """
          traits = self._get_cpu_feature_traits()
          traits[ot.HW_CPU_X86_AMD_SEV] = self._host.supports_amd_sev
@@ -706,7 +706,7 @@ index 23c9ec01f7..6012358448 100644
 2.40.1
 
 
-From 443275740dbdc775b89e217efefc6ed97ebef31e Mon Sep 17 00:00:00 2001
+From 3e83e3c451061fe9151253456b77fd2f1e76fba4 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sat, 14 May 2022 01:50:28 +0800
 Subject: [PATCH 2/6] Add quota support for SGX
@@ -1665,7 +1665,7 @@ index 7dad6f70db..a15016a2fe 100644
      'fixed_ips': common_quota,
      'metadata_items': common_quota,
 diff --git a/nova/compute/api.py b/nova/compute/api.py
-index 95aac8e8ba..f50c68c039 100644
+index 346c01a66e..37e6df6fe1 100644
 --- a/nova/compute/api.py
 +++ b/nova/compute/api.py
 @@ -3881,7 +3881,8 @@ class API:
@@ -3300,10 +3300,10 @@ index 01afe5ebe1..d48928d106 100644
          update_qfd.assert_called_once_with(self.context, instance.uuid, False)
  
 diff --git a/nova/tests/unit/compute/test_compute.py b/nova/tests/unit/compute/test_compute.py
-index 24213f18b8..92513f3c7d 100644
+index efe8efe481..0cd9ccfd31 100644
 --- a/nova/tests/unit/compute/test_compute.py
 +++ b/nova/tests/unit/compute/test_compute.py
-@@ -9099,7 +9099,8 @@ class ComputeAPITestCase(BaseTestCase):
+@@ -8992,7 +8992,8 @@ class ComputeAPITestCase(BaseTestCase):
          self.assertEqual(2, check_deltas_mock.call_count)
          call1 = mock.call(self.context, {'instances': 1,
                                           'cores': self.default_flavor.vcpus,
@@ -3494,7 +3494,7 @@ index 4172d3fda3..5bbf220013 100644
  
      def test_min_root_gb_filter(self):
 diff --git a/nova/tests/unit/objects/test_objects.py b/nova/tests/unit/objects/test_objects.py
-index 2568e099fc..f6b6a7d21c 100644
+index 45c2941e1d..c94543e4c4 100644
 --- a/nova/tests/unit/objects/test_objects.py
 +++ b/nova/tests/unit/objects/test_objects.py
 @@ -1118,7 +1118,7 @@ object_data = {
@@ -3958,10 +3958,10 @@ index 7979d83e91..7ed9673f55 100644
  
      @mock.patch.object(placement_limit, "get_legacy_default_limits")
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 689c7a48eb..ab795b7a50 100644
+index 98f87ed453..11bdb83e16 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -30013,7 +30013,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -30018,7 +30018,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
          guest_tmp = self.Temp({'guest': None, 'virt_type': 'kvm'})
          flavor = self.Temp(
              {'extra_specs': {
@@ -3989,7 +3989,7 @@ index 777a188637..5aceeb6f15 100644
  def _get_default_green_pool():
      global DEFAULT_GREEN_POOL
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 1c1fd90eeb..0365823415 100644
+index 34b38c8a30..75c77ba1a3 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -158,8 +158,6 @@ CONSOLE = "console=tty0 console=ttyS0 console=hvc0"
@@ -4001,7 +4001,7 @@ index 1c1fd90eeb..0365823415 100644
  
  class InjectionInfo(collections.namedtuple(
          'InjectionInfo', ['network_info', 'files', 'admin_pass'])):
-@@ -7251,7 +7249,8 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7249,7 +7247,8 @@ class LibvirtDriver(driver.ComputeDriver):
          """Size of sgx epc memory is determined by
          `resources:CUSTOM_SGX_EPC_MB` specified in flavor extra_spec.
          """
@@ -4011,7 +4011,7 @@ index 1c1fd90eeb..0365823415 100644
          return None if epc_mb is None else int(epc_mb)
  
      def _guest_configure_sev(self, guest, arch, mach_type):
-@@ -9009,7 +9008,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9007,7 +9006,7 @@ class LibvirtDriver(driver.ComputeDriver):
              }
  
          if sgx_epc_mb:
@@ -4024,7 +4024,7 @@ index 1c1fd90eeb..0365823415 100644
 2.40.1
 
 
-From e8ad547ba9f0ebd65ec00e83082d0b4ccfbae665 Mon Sep 17 00:00:00 2001
+From bf5ede5c7cff29095f013e7f93d4c7e10cd4e8d1 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Mon, 16 May 2022 19:06:49 +0800
 Subject: [PATCH 3/6] Fix SGX quota
@@ -4164,7 +4164,7 @@ index d48928d106..521e72cdc2 100644
 2.40.1
 
 
-From 692b1e255b746b583a1e7cd9960276f15ab8d157 Mon Sep 17 00:00:00 2001
+From 3240b403702024ab6f546ca3064912ba95b34029 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Sun, 5 Jun 2022 23:09:23 +0800
 Subject: [PATCH 4/6] Fix check of SGX_EPC flavor extra_specs
@@ -4201,7 +4201,7 @@ index a153216c84..f8ac572c88 100644
 2.40.1
 
 
-From 10ef4bbb8e18ccb6ad5efc5e903cfb4cae1d61e3 Mon Sep 17 00:00:00 2001
+From d6d95ce896341df664b7ed0951989a9e06fe8953 Mon Sep 17 00:00:00 2001
 From: shaleijie <sha.leijie@99cloud.net>
 Date: Fri, 15 Jul 2022 22:20:31 +0800
 Subject: [PATCH 5/6] Support for SDL tests
@@ -4245,7 +4245,7 @@ index 5b4b324801..2b90c0b367 100644
  
          self.useFixture(fixtures.MonkeyPatch('os.path.exists', fake_exists))
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index ab795b7a50..5039cc4f94 100644
+index 11bdb83e16..070455b76c 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
 @@ -7233,6 +7233,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
@@ -4275,7 +4275,7 @@ index ab795b7a50..5039cc4f94 100644
      @test.patch_exists(SEV_KERNEL_PARAM_FILE, result=False, other=True)
      def test_get_guest_config_aarch64_with_graphics(
          self, mock_numa, mock_storage,
-@@ -29980,6 +29986,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -29985,6 +29991,7 @@ class TestLibvirtSGX(test.NoDBTestCase):
  
      def setUp(self):
          super(TestLibvirtSGX, self).setUp()
@@ -4337,7 +4337,7 @@ index 6012358448..c92053b44d 100644
 2.40.1
 
 
-From cea13757b27d759a6bcbdf658b4697da8e00d86b Mon Sep 17 00:00:00 2001
+From 110ea89a4d0f4fe4c9a6af26e43c8d219b147d87 Mon Sep 17 00:00:00 2001
 From: Gondermann <gondermann@b1-systems.de>
 Date: Wed, 20 Dec 2023 15:52:43 +0100
 Subject: [PATCH 6/6] Make Nova spin up SGX instances using libvirt devices
@@ -4350,10 +4350,10 @@ Signed-off-by: Gondermann <gondermann@b1-systems.de>
  3 files changed, 101 insertions(+), 55 deletions(-)
 
 diff --git a/nova/tests/unit/virt/libvirt/test_driver.py b/nova/tests/unit/virt/libvirt/test_driver.py
-index 5039cc4f94..c99ae334ba 100644
+index 070455b76c..2d8e7da922 100644
 --- a/nova/tests/unit/virt/libvirt/test_driver.py
 +++ b/nova/tests/unit/virt/libvirt/test_driver.py
-@@ -30016,17 +30016,36 @@ class TestLibvirtSGX(test.NoDBTestCase):
+@@ -30021,17 +30021,36 @@ class TestLibvirtSGX(test.NoDBTestCase):
                  new=mock.Mock(return_value=True))
      def test_guest_add_sgx_kvm_require_sgx(self):
          epc_size = 10
@@ -4513,10 +4513,10 @@ index 6b648b5572..de12e65da4 100644
          return root
  
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 0365823415..1ec0113092 100644
+index 75c77ba1a3..6b7f9df79f 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
-@@ -7279,25 +7279,45 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -7277,25 +7277,45 @@ class LibvirtDriver(driver.ComputeDriver):
          guest.launch_security = launch_security
  
      def _guest_add_sgx(self, guest, flavor, image_meta):
@@ -4580,7 +4580,7 @@ index 0365823415..1ec0113092 100644
  
      def _find_sev_feature(self, arch, mach_type):
          """Search domain capabilities for the given arch and machine type
-@@ -9141,6 +9161,7 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -9139,6 +9159,7 @@ class LibvirtDriver(driver.ComputeDriver):
  
      def _get_host_sgx_epc_mb(self):
          if not self._host.supports_intel_sgx:

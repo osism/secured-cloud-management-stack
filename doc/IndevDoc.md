@@ -3,7 +3,7 @@
 ## Install:
 
 1) Clone the devstack. Create an appropriate ``local.conf`` with access to network interfaces, passwords and everything else you like. Add ``LIBS_FROM_GIT=python-novaclient,python-openstackclient`` to the end of the ``local.conf``. Use ``export FORCE=yes`` and ``stack.sh`` to install the devstack on a recent Ubuntu version.
-1) In ``nova/`` do ``git checkout 6531ed6310c4c11ee807e10d1a0fa91658c3afea``
+1) In ``nova/`` do ``git checkout 3209f6551652cff7bef0b9d9719ab940dd05a0f8``
 1) Apply patches to ``nova/``, ``python-novaclient/`` and ``python-openstackclient/``
 1) Set ``security_driver = "none"`` in ``/etc/libvirt/qemu.conf``
 1) ``sudo systemctl restart libvirtd``
